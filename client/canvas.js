@@ -1,10 +1,12 @@
+const remoteStrokes = new Map();
+
 const board = document.querySelector("#canvas");
 const pen = board.getContext("2d");
 
 // ================== APP DATA ==================
 const strokeStore = [];
 const redoStore = [];
-let activeLine explaining = null;
+let activeLine  = null;
 
 // ================== CANVAS CONFIG ==================
 function fitCanvasToScreen() {
@@ -24,32 +26,61 @@ board.addEventListener("pointerleave", completeLine);
 
 // ================== LINE CREATION ==================
 function beginLine(event) {
+  const strokeId = crypto.randomUUID();
+
   activeLine = {
+    id: strokeId,
     mode: currentTool,
     shade: currentTool === "eraser" ? "#ffffff" : currentColor,
     thickness: currentWidth,
     path: [{ x: event.clientX, y: event.clientY }]
   };
+
+  sendMessage({
+    type: "stroke:start",
+    strokeId,
+    mode: activeLine.mode,
+    shade: activeLine.shade,
+    thickness: activeLine.thickness,
+    point: activeLine.path[0]
+  });
 }
+
+
+
 
 function extendLine(event) {
   if (!activeLine) return;
 
-  activeLine.path.push({
-    x: event.clientX,
-    y: event.clientY
-  });
-
+  const point = { x: event.clientX, y: event.clientY };
+  activeLine.path.push(point);
   drawPartialLine(activeLine);
+
+  sendMessage({
+    type: "stroke:move",
+    strokeId: activeLine.id,
+    point
+  });
 }
+
+
 
 function completeLine() {
   if (!activeLine) return;
 
   strokeStore.push(activeLine);
+
+  sendMessage({
+    type: "stroke:end",
+    strokeId: activeLine.id
+  });
+
   redoStore.length = 0;
   activeLine = null;
 }
+
+
+
 
 // ================== RENDERING ==================
 function drawPartialLine(line) {
@@ -117,3 +148,31 @@ window.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.key === "z") rollback();
   if (event.ctrlKey && event.key === "y") restore();
 });
+
+function handleRemoteMessage(msg) {
+
+  if (msg.type === "stroke:start") {
+    remoteStrokes.set(msg.strokeId, {
+      mode: msg.mode,
+      shade: msg.shade,
+      thickness: msg.thickness,
+      path: [msg.point]
+    });
+  }
+
+  if (msg.type === "stroke:move") {
+    const line = remoteStrokes.get(msg.strokeId);
+    if (!line) return;
+
+    line.path.push(msg.point);
+    drawPartialLine(line);
+  }
+
+  if (msg.type === "stroke:end") {
+    const line = remoteStrokes.get(msg.strokeId);
+    if (!line) return;
+
+    strokeStore.push(line);
+    remoteStrokes.delete(msg.strokeId);
+  }
+}

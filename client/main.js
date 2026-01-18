@@ -20,3 +20,5 @@ eraserBtn.onclick = () => currentTool = "eraser";
 
 undoBtn.onclick = () => undo();
 redoBtn.onclick = () => redo();
+
+initWebSocket();

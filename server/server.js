@@ -1,6 +1,6 @@
 import express from "express";
 import http from "http";
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
 import { v4 as uuidv4 } from "uuid";
 
 const app = express();
@@ -22,15 +22,10 @@ wss.on("connection", (ws) => {
   ws.on("message", (data) => {
     const message = data.toString();
 
-    // Broadcast to all clients
+    // Broadcast to all OTHER clients
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            senderId: clientId,
-            payload: message,
-          })
-        );
+      if (client !== ws && client.readyState === client.OPEN) {
+        client.send(message);
       }
     }
   });
