@@ -1,178 +1,142 @@
 const remoteStrokes = new Map();
-
 const board = document.querySelector("#canvas");
 const pen = board.getContext("2d");
 
-// ================== APP DATA ==================
-const strokeStore = [];
-const redoStore = [];
-let activeLine  = null;
+// ================== AUTHORITATIVE STATE ==================
+const operations = [];
+let activeLine = null;
 
 // ================== CANVAS CONFIG ==================
 function fitCanvasToScreen() {
   board.width = window.innerWidth;
   board.height = window.innerHeight;
-  refreshBoard();
+  redraw();
 }
 
 window.addEventListener("resize", fitCanvasToScreen);
 fitCanvasToScreen();
 
-// ================== INPUT LISTENERS ==================
+// ================== INPUT ==================
 board.addEventListener("pointerdown", beginLine);
 board.addEventListener("pointermove", extendLine);
 board.addEventListener("pointerup", completeLine);
 board.addEventListener("pointerleave", completeLine);
 
-// ================== LINE CREATION ==================
-function beginLine(event) {
-  const strokeId = crypto.randomUUID();
+// ================== LOCAL DRAW ==================
+function beginLine(e) {
+  const id = crypto.randomUUID();
 
   activeLine = {
-    id: strokeId,
-    mode: currentTool,
+    id,
     shade: currentTool === "eraser" ? "#ffffff" : currentColor,
     thickness: currentWidth,
-    path: [{ x: event.clientX, y: event.clientY }]
+    path: [{ x: e.clientX, y: e.clientY }]
   };
-
-  sendMessage({
-    type: "stroke:start",
-    strokeId,
-    mode: activeLine.mode,
-    shade: activeLine.shade,
-    thickness: activeLine.thickness,
-    point: activeLine.path[0]
-  });
 }
 
-
-
-
-function extendLine(event) {
+function extendLine(e) {
   if (!activeLine) return;
 
-  const point = { x: event.clientX, y: event.clientY };
+  const point = { x: e.clientX, y: e.clientY };
   activeLine.path.push(point);
   drawPartialLine(activeLine);
-
-  sendMessage({
-    type: "stroke:move",
-    strokeId: activeLine.id,
-    point
-  });
 }
-
-
 
 function completeLine() {
   if (!activeLine) return;
 
-  strokeStore.push(activeLine);
-
   sendMessage({
     type: "stroke:end",
-    strokeId: activeLine.id
+    stroke: activeLine
   });
 
-  redoStore.length = 0;
   activeLine = null;
 }
 
-
-
-
-// ================== RENDERING ==================
+// ================== RENDER ==================
 function drawPartialLine(line) {
-  const points = line.path;
-  if (points.length < 2) return;
+  const pts = line.path;
+  if (pts.length < 2) return;
 
-  const prevPoint = points[points.length - 2];
-  const currPoint = points[points.length - 1];
+  const p1 = pts[pts.length - 2];
+  const p2 = pts[pts.length - 1];
 
   pen.strokeStyle = line.shade;
   pen.lineWidth = line.thickness;
   pen.lineCap = "round";
-  pen.lineJoin = "round";
 
   pen.beginPath();
-  pen.moveTo(prevPoint.x, prevPoint.y);
+  pen.moveTo(p1.x, p1.y);
   pen.quadraticCurveTo(
-    prevPoint.x,
-    prevPoint.y,
-    (prevPoint.x + currPoint.x) / 2,
-    (prevPoint.y + currPoint.y) / 2
+    p1.x,
+    p1.y,
+    (p1.x + p2.x) / 2,
+    (p1.y + p2.y) / 2
   );
   pen.stroke();
 }
 
-function drawCompleteLine(line) {
-  const points = line.path;
-  if (points.length < 2) return;
+function drawCompleteLine(op) {
+  const pts = op.points;
+  if (pts.length < 2) return;
 
-  pen.strokeStyle = line.shade;
-  pen.lineWidth = line.thickness;
+  pen.strokeStyle = op.color;
+  pen.lineWidth = op.width;
   pen.lineCap = "round";
 
   pen.beginPath();
-  pen.moveTo(points[0].x, points[0].y);
-
-  for (let i = 1; i < points.length; i++) {
-    pen.lineTo(points[i].x, points[i].y);
+  pen.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    pen.lineTo(pts[i].x, pts[i].y);
   }
-
   pen.stroke();
 }
 
-// ================== REPAINT ==================
-function refreshBoard() {
+// ================== AUTHORITATIVE REDRAW ==================
+function redraw() {
   pen.clearRect(0, 0, board.width, board.height);
-  strokeStore.forEach(drawCompleteLine);
+  operations.forEach(op => {
+    if (!op.undone) drawCompleteLine(op);
+  });
 }
 
-// ================== HISTORY CONTROLS ==================
-function rollback() {
-  if (!strokeStore.length) return;
-  redoStore.push(strokeStore.pop());
-  refreshBoard();
-}
-
-function restore() {
-  if (!redoStore.length) return;
-  strokeStore.push(redoStore.pop());
-  refreshBoard();
-}
-
-// ================== SHORTCUT KEYS ==================
-window.addEventListener("keydown", (event) => {
-  if (event.ctrlKey && event.key === "z") rollback();
-  if (event.ctrlKey && event.key === "y") restore();
-});
-
+// ================== SERVER EVENTS ==================
 function handleRemoteMessage(msg) {
 
-  if (msg.type === "stroke:start") {
-    remoteStrokes.set(msg.strokeId, {
-      mode: msg.mode,
-      shade: msg.shade,
-      thickness: msg.thickness,
-      path: [msg.point]
-    });
+  if (msg.type === "snapshot") {
+    operations.length = 0;
+    operations.push(...msg.operations);
+    redraw();
   }
 
-  if (msg.type === "stroke:move") {
-    const line = remoteStrokes.get(msg.strokeId);
-    if (!line) return;
-
-    line.path.push(msg.point);
-    drawPartialLine(line);
+  if (msg.type === "commit") {
+    operations.push(msg.operation);
+    redraw();
   }
 
-  if (msg.type === "stroke:end") {
-    const line = remoteStrokes.get(msg.strokeId);
-    if (!line) return;
+  if (msg.type === "undo") {
+    const op = operations.find(o => o.id === msg.opId);
+    if (op) {
+      op.undone = true;
+      redraw();
+    }
+  }
 
-    strokeStore.push(line);
-    remoteStrokes.delete(msg.strokeId);
+  if (msg.type === "redo") {
+    const op = operations.find(o => o.id === msg.opId);
+    if (op) {
+      op.undone = false;
+      redraw();
+    }
   }
 }
+
+// ================== GLOBAL SHORTCUTS ==================
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.key === "z") {
+    sendMessage({ type: "undo" });
+  }
+  if (e.ctrlKey && e.key === "y") {
+    sendMessage({ type: "redo" });
+  }
+});
