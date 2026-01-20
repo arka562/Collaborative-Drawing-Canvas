@@ -11,6 +11,11 @@ function initWebSocket() {
     const msg = JSON.parse(event.data);
     handleRemoteMessage(msg);
   };
+
+  socket.onclose = () => {
+    console.log("WebSocket disconnected, retrying...");
+    setTimeout(initWebSocket, 1000);
+  };
 }
 
 function sendMessage(msg) {

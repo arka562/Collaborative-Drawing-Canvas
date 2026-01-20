@@ -1,12 +1,13 @@
-const remoteStrokes = new Map();
 const board = document.querySelector("#canvas");
 const pen = board.getContext("2d");
 
-// ================== AUTHORITATIVE STATE ==================
+// ================== STATE ==================
 const operations = [];
+const remoteCursors = new Map();
 let activeLine = null;
+let lastCursorSent = 0;
 
-// ================== CANVAS CONFIG ==================
+// ================== CANVAS SETUP ==================
 function fitCanvasToScreen() {
   board.width = window.innerWidth;
   board.height = window.innerHeight;
@@ -22,10 +23,9 @@ board.addEventListener("pointermove", extendLine);
 board.addEventListener("pointerup", completeLine);
 board.addEventListener("pointerleave", completeLine);
 
-// ================== LOCAL DRAW ==================
+// ================== DRAWING ==================
 function beginLine(e) {
   const id = crypto.randomUUID();
-
   activeLine = {
     id,
     shade: currentTool === "eraser" ? "#ffffff" : currentColor,
@@ -40,20 +40,23 @@ function extendLine(e) {
   const point = { x: e.clientX, y: e.clientY };
   activeLine.path.push(point);
   drawPartialLine(activeLine);
+
+  // Cursor update (throttled)
+  const now = Date.now();
+  if (now - lastCursorSent > 30) {
+    sendMessage({ type: "cursor:move", x: point.x, y: point.y });
+    lastCursorSent = now;
+  }
 }
 
 function completeLine() {
   if (!activeLine) return;
 
-  sendMessage({
-    type: "stroke:end",
-    stroke: activeLine
-  });
-
+  sendMessage({ type: "stroke:end", stroke: activeLine });
   activeLine = null;
 }
 
-// ================== RENDER ==================
+// ================== RENDERING ==================
 function drawPartialLine(line) {
   const pts = line.path;
   if (pts.length < 2) return;
@@ -68,8 +71,7 @@ function drawPartialLine(line) {
   pen.beginPath();
   pen.moveTo(p1.x, p1.y);
   pen.quadraticCurveTo(
-    p1.x,
-    p1.y,
+    p1.x, p1.y,
     (p1.x + p2.x) / 2,
     (p1.y + p2.y) / 2
   );
@@ -92,11 +94,19 @@ function drawCompleteLine(op) {
   pen.stroke();
 }
 
-// ================== AUTHORITATIVE REDRAW ==================
+// ================== REDRAW ==================
 function redraw() {
   pen.clearRect(0, 0, board.width, board.height);
   operations.forEach(op => {
     if (!op.undone) drawCompleteLine(op);
+  });
+
+  // Draw cursors
+  remoteCursors.forEach(pos => {
+    pen.fillStyle = "red";
+    pen.beginPath();
+    pen.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+    pen.fill();
   });
 }
 
@@ -129,14 +139,20 @@ function handleRemoteMessage(msg) {
       redraw();
     }
   }
+
+  if (msg.type === "cursor:move") {
+    remoteCursors.set(msg.userId, { x: msg.x, y: msg.y });
+    redraw();
+  }
+
+  if (msg.type === "user:leave") {
+    remoteCursors.delete(msg.userId);
+    redraw();
+  }
 }
 
 // ================== GLOBAL SHORTCUTS ==================
 window.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.key === "z") {
-    sendMessage({ type: "undo" });
-  }
-  if (e.ctrlKey && e.key === "y") {
-    sendMessage({ type: "redo" });
-  }
+  if (e.ctrlKey && e.key === "z") sendMessage({ type: "undo" });
+  if (e.ctrlKey && e.key === "y") sendMessage({ type: "redo" });
 });
