@@ -1,10 +1,10 @@
-# 🎨 Real-Time Collaborative Drawing Canvas
+#  Real-Time Collaborative Drawing Canvas
 
 A multi-user real-time drawing application where multiple users can draw simultaneously on a shared canvas with global undo/redo support.
 
 ---
 
-## 🚀 Features
+##  Features
 
 - Real-time collaborative drawing using WebSockets
 - Smooth freehand drawing with brush and eraser
@@ -17,7 +17,7 @@ A multi-user real-time drawing application where multiple users can draw simulta
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 - **Frontend**: HTML, CSS, Vanilla JavaScript, Canvas API
 - **Backend**: Node.js, Express
@@ -26,8 +26,9 @@ A multi-user real-time drawing application where multiple users can draw simulta
 
 ---
 
-## ⚙️ Setup Instructions
+##  Setup Instructions
 
 ```bash
 npm install
 npm run dev
+
